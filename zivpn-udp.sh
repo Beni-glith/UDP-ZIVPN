@@ -35,7 +35,7 @@ json_set() {
   local key=$1 value=$2
   [[ -f "$CONFIG_FILE" ]] || die "Config tidak ditemukan: $CONFIG_FILE"
   tmp=$(mktemp)
-  jq --arg v "$value" ".$key = \$v" "$CONFIG_FILE" >"$tmp"
+  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" >"$tmp"
   mv "$tmp" "$CONFIG_FILE"
 }
 
@@ -212,10 +212,31 @@ install_all() {
   ok "Instalasi selesai. Tunnel berjalan dengan service zivpn-udp."
 }
 
-service_start() { systemctl start zivpn-udp && ok "Service dimulai."; }
-service_stop() { systemctl stop zivpn-udp && ok "Service dihentikan."; }
-service_restart() { systemctl restart zivpn-udp && ok "Service direstart."; }
-service_status() { systemctl status zivpn-udp; }
+service_start() {
+  if systemctl start zivpn-udp; then
+    ok "Service dimulai."
+  else
+    err "Gagal memulai service zivpn-udp."
+  fi
+}
+
+service_stop() {
+  if systemctl stop zivpn-udp; then
+    ok "Service dihentikan."
+  else
+    err "Gagal menghentikan service zivpn-udp."
+  fi
+}
+
+service_restart() {
+  if systemctl restart zivpn-udp; then
+    ok "Service direstart."
+  else
+    err "Gagal merestart service zivpn-udp."
+  fi
+}
+
+service_status() { systemctl status zivpn-udp || true; }
 service_logs() { tail -n 50 "$LOG_FILE"; }
 
 show_vps_info() {

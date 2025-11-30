@@ -10,20 +10,42 @@ Proyek ini menyediakan skrip otomatis untuk menghubungkan server ke panel ZIVPN 
 
 ## Instalasi
 ### Metode Git Clone
-```bash
-sudo apt update -y && sudo apt install -y git
-cd /opt
-sudo git clone https://github.com/USER/REPO.git zivpn-udp
-cd zivpn-udp
-sudo chmod +x zivpn-udp.sh
-sudo ./zivpn-udp.sh install
-```
+GitHub tidak menerima password biasa untuk `git clone`. Gunakan Personal Access Token (PAT) atau SSH.
+
+**Opsi HTTPS + PAT**
+1. Buat PAT (scope minimal `repo`) di https://github.com/settings/tokens.
+2. Clone memakai URL HTTPS dan masukkan PAT saat diminta password:
+   ```bash
+   sudo apt update -y && sudo apt install -y git
+   cd /opt
+   sudo git clone https://github.com/Beni-glith/UDP-ZIVPN.git zivpn-udp
+   cd zivpn-udp
+   sudo chmod +x zivpn-udp.sh
+   sudo ./zivpn-udp.sh install
+   ```
+
+**Opsi SSH**
+1. Tambahkan kunci publik ke GitHub (Settings → SSH and GPG keys).
+2. Pastikan `ssh-agent` berjalan dan kunci sudah dimuat.
+3. Clone memakai URL SSH:
+   ```bash
+   sudo apt update -y && sudo apt install -y git
+   cd /opt
+   sudo git clone git@github.com:Beni-glith/UDP-ZIVPN.git zivpn-udp
+   cd zivpn-udp
+   sudo chmod +x zivpn-udp.sh
+   sudo ./zivpn-udp.sh install
+   ```
+
+**Opsi Unduh ZIP (tanpa git)**
+1. Buka halaman repo di GitHub → tombol **Code** → **Download ZIP**.
+2. Unggah/ekstrak ZIP ke server, lalu jalankan `sudo ./zivpn-udp.sh install` di folder hasil ekstraksi.
 
 ### Metode Unduh Langsung
 ```bash
-wget -O zivpn-udp.sh https://raw.githubusercontent.com/USER/REPO/main/zivpn-udp.sh
-wget -O telegram_bot.py https://raw.githubusercontent.com/USER/REPO/main/telegram_bot.py
-wget -O LICENSE https://raw.githubusercontent.com/USER/REPO/main/LICENSE
+wget -O zivpn-udp.sh https://raw.githubusercontent.com/Beni-glith/UDP-ZIVPN/main/zivpn-udp.sh
+wget -O telegram_bot.py https://raw.githubusercontent.com/Beni-glith/UDP-ZIVPN/main/telegram_bot.py
+wget -O LICENSE https://raw.githubusercontent.com/Beni-glith/UDP-ZIVPN/main/LICENSE
 chmod +x zivpn-udp.sh
 sudo ./zivpn-udp.sh install
 ```

@@ -35,7 +35,7 @@ json_set() {
   local key=$1 value=$2
   [[ -f "$CONFIG_FILE" ]] || die "Config tidak ditemukan: $CONFIG_FILE"
   tmp=$(mktemp)
-  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" >"$tmp"
+  jq --arg k "$key" --arg v "$value" 'setpath([$k]; $v)' "$CONFIG_FILE" >"$tmp"
   mv "$tmp" "$CONFIG_FILE"
 }
 

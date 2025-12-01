@@ -27,16 +27,38 @@ require_root() {
 
 json_get() {
   local key=$1
-  [[ -f "$CONFIG_FILE" ]] || return 1
+  ensure_config_object || return 1
   jq -r ".$key" "$CONFIG_FILE"
 }
 
 json_set() {
   local key=$1 value=$2
-  [[ -f "$CONFIG_FILE" ]] || die "Config tidak ditemukan: $CONFIG_FILE"
+  ensure_config_object
   tmp=$(mktemp)
   jq --arg k "$key" --arg v "$value" 'try (.[$k] = ($v | fromjson)) catch (.[$k] = $v)' "$CONFIG_FILE" >"$tmp"
   mv "$tmp" "$CONFIG_FILE"
+}
+
+ensure_config_object() {
+  if [[ -f "$CONFIG_FILE" ]] && jq -e 'type=="object"' "$CONFIG_FILE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  warn "config.json tidak ditemukan atau tidak valid. Membuat kerangka baru di $CONFIG_FILE"
+  mkdir -p "$CONFIG_DIR"
+  cat >"$CONFIG_FILE" <<'EOF_JSON'
+{
+  "domain": "",
+  "port": 0,
+  "license": "",
+  "expiry": "",
+  "api_url": "",
+  "api_token": "",
+  "telegram_bot_token": "",
+  "telegram_admin_id": "",
+  "created_at": ""
+}
+EOF_JSON
 }
 
 # -------- Dependencies --------
@@ -70,6 +92,7 @@ client
 dev tun
 proto udp
 remote ${domain} ${port} udp
+ca ${CONFIG_DIR}/ca.crt
 resolv-retry infinite
 nobind
 persist-key
@@ -86,6 +109,28 @@ verb 3
 # <tls-auth> ... </tls-auth>
 EOF_OVPN
   check_udp_only
+}
+
+prompt_ca_certificate() {
+  local ca_file="${CONFIG_DIR}/ca.crt"
+  read -rp "Tempelkan sertifikat CA sekarang? (y/N): " ans
+  if [[ "$ans" =~ ^[Yy]$ ]]; then
+    echo "Tempelkan isi sertifikat CA (akhiri dengan CTRL+D):"
+    cat >"$ca_file"
+    ok "Sertifikat CA disimpan di $ca_file"
+  else
+    if [[ ! -f "$ca_file" ]]; then
+      echo "# Tempelkan sertifikat CA ZIVPN di file ini (BEGIN/END CERTIFICATE)." >"$ca_file"
+    fi
+    warn "Sertifikat CA belum diisi. Edit $ca_file agar tunnel dapat terhubung."
+  fi
+}
+
+ensure_ca_file() {
+  local ca_file="${CONFIG_DIR}/ca.crt"
+  if [[ ! -s "$ca_file" ]]; then
+    warn "Sertifikat CA di $ca_file kosong. Tempelkan blok BEGIN/END CERTIFICATE untuk menghindari error OpenVPN."
+  fi
 }
 
 create_config_json() {
@@ -158,6 +203,7 @@ EOF_BOT
 
 # -------- API helpers --------
 load_api_env() {
+  ensure_config_object
   API_URL=$(json_get api_url)
   API_TOKEN=$(json_get api_token)
   [[ "$API_URL" == "null" || -z "$API_URL" ]] && die "api_url belum dikonfigurasi."
@@ -166,11 +212,17 @@ load_api_env() {
 curl_api() {
   local path=$1
   local url="${API_URL%/}/${path}"
+  local resp
   if [[ -n "$API_TOKEN" && "$API_TOKEN" != "null" ]]; then
-    curl -s -H "Authorization: Bearer ${API_TOKEN}" "$url"
+    if ! resp=$(curl -fsS -H "Authorization: Bearer ${API_TOKEN}" "$url"); then
+      die "Gagal memanggil API ${url}. Periksa koneksi atau token."
+    fi
   else
-    curl -s "$url"
+    if ! resp=$(curl -fsS "$url"); then
+      die "Gagal memanggil API ${url}. Periksa koneksi atau endpoint."
+    fi
   fi
+  echo "$resp"
 }
 
 api_ping() { load_api_env; curl_api "ping"; }
@@ -207,7 +259,9 @@ install_all() {
   read -rp "TELEGRAM ADMIN CHAT ID (boleh kosong): " admin_id
 
   create_ovpn "$domain" "$port"
+  prompt_ca_certificate
   create_config_json "$domain" "$port" "$license" "$expiry" "$api_url" "$api_token" "$bot_token" "$admin_id"
+  ensure_ca_file
   create_tunnel_service
   ok "Instalasi selesai. Tunnel berjalan dengan service zivpn-udp."
 }

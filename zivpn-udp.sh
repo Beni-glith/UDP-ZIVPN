@@ -27,16 +27,38 @@ require_root() {
 
 json_get() {
   local key=$1
-  [[ -f "$CONFIG_FILE" ]] || return 1
+  ensure_config_object || return 1
   jq -r ".$key" "$CONFIG_FILE"
 }
 
 json_set() {
   local key=$1 value=$2
-  [[ -f "$CONFIG_FILE" ]] || die "Config tidak ditemukan: $CONFIG_FILE"
+  ensure_config_object
   tmp=$(mktemp)
   jq --arg k "$key" --arg v "$value" 'try (.[$k] = ($v | fromjson)) catch (.[$k] = $v)' "$CONFIG_FILE" >"$tmp"
   mv "$tmp" "$CONFIG_FILE"
+}
+
+ensure_config_object() {
+  if [[ -f "$CONFIG_FILE" ]] && jq -e 'type=="object"' "$CONFIG_FILE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  warn "config.json tidak ditemukan atau tidak valid. Membuat kerangka baru di $CONFIG_FILE"
+  mkdir -p "$CONFIG_DIR"
+  cat >"$CONFIG_FILE" <<'EOF_JSON'
+{
+  "domain": "",
+  "port": 0,
+  "license": "",
+  "expiry": "",
+  "api_url": "",
+  "api_token": "",
+  "telegram_bot_token": "",
+  "telegram_admin_id": "",
+  "created_at": ""
+}
+EOF_JSON
 }
 
 # -------- Dependencies --------
@@ -44,7 +66,7 @@ install_deps() {
   if command -v apt >/dev/null 2>&1; then
     log "Memperbarui dan memasang dependensi..."
     apt update -y
-    apt install -y openvpn curl jq lsb-release net-tools python3 python3-pip
+    apt install -y openvpn curl jq lsb-release net-tools python3 python3-pip openssl
   else
     warn "apt tidak tersedia, instalasi paket dilewati. Pasang openvpn, curl, jq, python3 secara manual."
   fi
@@ -70,6 +92,7 @@ client
 dev tun
 proto udp
 remote ${domain} ${port} udp
+ca ${CONFIG_DIR}/ca.crt
 resolv-retry infinite
 nobind
 persist-key
@@ -86,6 +109,24 @@ verb 3
 # <tls-auth> ... </tls-auth>
 EOF_OVPN
   check_udp_only
+}
+
+generate_ca_certificate() {
+  local ca_key="${CONFIG_DIR}/ca.key"
+  local ca_crt="${CONFIG_DIR}/ca.crt"
+
+  if [[ -s "$ca_crt" && -s "$ca_key" ]]; then
+    ok "Sertifikat CA sudah ada di $ca_crt"
+    return
+  fi
+
+  log "Membuat sertifikat CA self-signed untuk OpenVPN..."
+  mkdir -p "$CONFIG_DIR"
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "$ca_key" -out "$ca_crt" \
+    -days 3650 -subj "/CN=ZIVPN-UDP-CA" >/dev/null 2>&1
+  chmod 600 "$ca_key"
+  ok "Sertifikat CA otomatis dibuat di $ca_crt"
 }
 
 create_config_json() {
@@ -158,6 +199,7 @@ EOF_BOT
 
 # -------- API helpers --------
 load_api_env() {
+  ensure_config_object
   API_URL=$(json_get api_url)
   API_TOKEN=$(json_get api_token)
   [[ "$API_URL" == "null" || -z "$API_URL" ]] && die "api_url belum dikonfigurasi."
@@ -166,11 +208,17 @@ load_api_env() {
 curl_api() {
   local path=$1
   local url="${API_URL%/}/${path}"
+  local resp
   if [[ -n "$API_TOKEN" && "$API_TOKEN" != "null" ]]; then
-    curl -s -H "Authorization: Bearer ${API_TOKEN}" "$url"
+    if ! resp=$(curl -fsS -H "Authorization: Bearer ${API_TOKEN}" "$url"); then
+      die "Gagal memanggil API ${url}. Periksa koneksi atau token."
+    fi
   else
-    curl -s "$url"
+    if ! resp=$(curl -fsS "$url"); then
+      die "Gagal memanggil API ${url}. Periksa koneksi atau endpoint."
+    fi
   fi
+  echo "$resp"
 }
 
 api_ping() { load_api_env; curl_api "ping"; }
@@ -207,6 +255,7 @@ install_all() {
   read -rp "TELEGRAM ADMIN CHAT ID (boleh kosong): " admin_id
 
   create_ovpn "$domain" "$port"
+  generate_ca_certificate
   create_config_json "$domain" "$port" "$license" "$expiry" "$api_url" "$api_token" "$bot_token" "$admin_id"
   create_tunnel_service
   ok "Instalasi selesai. Tunnel berjalan dengan service zivpn-udp."

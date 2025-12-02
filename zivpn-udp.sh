@@ -8,6 +8,7 @@ OVPN_FILE="${CONFIG_DIR}/zivpn_udp.ovpn"
 LOG_FILE="/var/log/zivpn-udp.log"
 SERVICE_FILE="/etc/systemd/system/zivpn-udp.service"
 BOT_SERVICE_FILE="/etc/systemd/system/zivpn-bot.service"
+API_SERVICE_FILE="/etc/systemd/system/zivpn-api.service"
 BOT_TARGET_DIR="/opt/zivpn-udp"
 
 # -------- Helper --------
@@ -197,6 +198,33 @@ EOF_BOT
   systemctl start zivpn-bot
 }
 
+create_local_api_service() {
+  local token=$1 port=${2:-8686}
+  mkdir -p "$BOT_TARGET_DIR"
+  cp "$(pwd)/local_api.py" "${BOT_TARGET_DIR}/local_api.py"
+  cat >"$API_SERVICE_FILE" <<EOF_API
+[Unit]
+Description=ZIVPN Local API Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=${BOT_TARGET_DIR}
+ExecStart=/usr/bin/python3 ${BOT_TARGET_DIR}/local_api.py --host 127.0.0.1 --port ${port} --db ${CONFIG_DIR}/local_api_db.json --token ${token}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF_API
+  systemctl daemon-reload
+  systemctl enable zivpn-api
+  systemctl start zivpn-api
+}
+
 # -------- API helpers --------
 load_api_env() {
   ensure_config_object
@@ -249,14 +277,31 @@ install_all() {
   done
   read -rp "LICENSE KEY: " license
   read -rp "EXPIRY DATE (YYYY-MM-DD): " expiry
-  read -rp "API URL (contoh https://domain/api): " api_url
-  read -rp "API TOKEN (boleh kosong): " api_token
+  read -rp "Gunakan API lokal tanpa panel? [y/N]: " use_local_api
+  api_url=""
+  api_token=""
+  if [[ "$use_local_api" =~ ^[Yy]$ ]]; then
+    read -rp "Port API lokal (default 8686): " api_port
+    api_port=${api_port:-8686}
+    if ! [[ $api_port =~ ^[0-9]+$ ]] || ((api_port < 1 || api_port > 65535)); then
+      die "Port API lokal tidak valid."
+    fi
+    read -rp "Token API lokal (opsional, biarkan kosong jika tidak ingin): " api_token
+    api_url="http://127.0.0.1:${api_port}"
+  else
+    read -rp "API URL (contoh https://domain/api): " api_url
+    read -rp "API TOKEN (boleh kosong): " api_token
+  fi
   read -rp "TELEGRAM BOT TOKEN (boleh kosong): " bot_token
   read -rp "TELEGRAM ADMIN CHAT ID (boleh kosong): " admin_id
 
   create_ovpn "$domain" "$port"
   generate_ca_certificate
   create_config_json "$domain" "$port" "$license" "$expiry" "$api_url" "$api_token" "$bot_token" "$admin_id"
+  if [[ "$use_local_api" =~ ^[Yy]$ ]]; then
+    create_local_api_service "$api_token" "$api_port"
+    ok "API lokal dijalankan di ${api_url}"
+  fi
   create_tunnel_service
   ok "Instalasi selesai. Tunnel berjalan dengan service zivpn-udp."
 }
@@ -288,6 +333,10 @@ service_restart() {
 service_status() { systemctl status zivpn-udp || true; }
 service_logs() { tail -n 50 "$LOG_FILE"; }
 
+local_api_start() { systemctl start zivpn-api && ok "API lokal dimulai." || warn "Gagal memulai API lokal."; }
+local_api_stop() { systemctl stop zivpn-api && ok "API lokal dihentikan." || warn "Gagal menghentikan API lokal."; }
+local_api_status() { systemctl status zivpn-api || true; }
+
 show_vps_info() {
   echo "OS       : $(lsb_release -ds 2>/dev/null || echo \"Unknown\")"
   echo "Kernel   : $(uname -r)"
@@ -301,8 +350,15 @@ edit_ovpn() { ${EDITOR:-nano} "$OVPN_FILE"; service_restart; }
 edit_json() { ${EDITOR:-nano} "$CONFIG_FILE"; }
 
 api_menu() {
+  ensure_config_object
+  local current_api_url=$(json_get api_url)
+  local api_mode=""
+  if [[ "$current_api_url" == http://127.0.0.1:* || "$current_api_url" == http://localhost:* ]]; then
+    api_mode="(API lokal)"
+  fi
   while true; do
     echo "\n[API MANAGER]"
+    echo "API URL: ${current_api_url:-belum diset} ${api_mode}"
     echo "[1] List Akun"
     echo "[2] Tambah User"
     echo "[3] Trial User"
@@ -311,6 +367,9 @@ api_menu() {
     echo "[6] Ubah Password User"
     echo "[7] Backup Akun"
     echo "[8] Restore Akun"
+    echo "[9] Start API Lokal"
+    echo "[10] Stop API Lokal"
+    echo "[11] Status API Lokal"
     echo "[0] Kembali"
     read -rp "Pilih: " choice
     case $choice in
@@ -322,6 +381,9 @@ api_menu() {
       6) read -rp "Username: " u; read -rp "Password baru: " p; api_changepass "$u" "$p"; pause ;;
       7) api_backup; pause ;;
       8) read -rp "Backup ID: " bid; api_restore "$bid"; pause ;;
+      9) local_api_start; pause ;;
+      10) local_api_stop; pause ;;
+      11) local_api_status; pause ;;
       0) break ;;
       *) warn "Pilihan tidak dikenal" ;;
     esac

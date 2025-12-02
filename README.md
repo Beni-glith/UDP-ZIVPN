@@ -62,6 +62,12 @@ sudo ./zivpn-udp.sh
 - Menyediakan sub-menu API untuk memanggil endpoint panel ZIVPN (/ping, /users, /add, /trial, /delete, /renew, /changepass, /backup, /restore).
 - Menyediakan sub-menu Telegram Bot Manager untuk menyalin `telegram_bot.py` ke `/opt/zivpn-udp/`, membuat service `zivpn-bot`, dan mengelolanya.
 
+### Mode API Lokal (tanpa panel)
+- Jika tidak memiliki panel ZIVPN, pilih opsi **API lokal** saat instalasi.
+- Script akan membuat service systemd `zivpn-api` yang menjalankan `local_api.py` di `http://127.0.0.1:8686` (port bisa diubah saat instalasi).
+- Endpoint yang tersedia sama dengan menu API (ping, users, add, trial, delete, renew, changepass, backup, restore) sehingga API Manager tetap dapat dipakai.
+- Token Bearer opsional bisa diisi saat instalasi untuk membatasi akses ke API lokal.
+
 ## Menu Utama (ZIVPN UDP MANAGER)
 - **Install / Setup Awal**: Pasang dependensi, buat OVPN UDP, simpan config JSON, dan buat service tunnel.
 - **Start/Stop/Restart Tunnel**: Kontrol service `zivpn-udp`.

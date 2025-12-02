@@ -7,6 +7,7 @@ Proyek ini menyediakan skrip otomatis untuk menghubungkan server ke panel ZIVPN 
 - Akses root (sudo)
 - Data panel ZIVPN: domain/host, port UDP, license key, tanggal kedaluwarsa, URL API, token API (opsional)
 - Token bot Telegram dan admin chat ID (opsional untuk fitur bot)
+- Kredensial akun OpenVPN (username & password) dari panel
 
 ## Instalasi
 ### Metode Git Clone
@@ -49,6 +50,8 @@ wget -O LICENSE https://raw.githubusercontent.com/Beni-glith/UDP-ZIVPN/main/LICE
 chmod +x zivpn-udp.sh
 sudo ./zivpn-udp.sh install
 ```
+
+Selama instalasi Anda akan diminta memasukkan username dan password OpenVPN dari panel. Skrip akan menyimpannya di `/etc/zivpn-udp/auth.txt` (izin 600) dan menambahkannya ke konfigurasi OVPN sehingga pesan `Options error: No client-side authentication method is specified` tidak muncul lagi.
 
 Setelah instalasi, jalankan menu interaktif dengan:
 ```bash

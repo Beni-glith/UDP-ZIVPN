@@ -5,6 +5,7 @@ VERSION="1.0"
 CONFIG_DIR="/etc/zivpn-udp"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
 OVPN_FILE="${CONFIG_DIR}/zivpn_udp.ovpn"
+AUTH_FILE="${CONFIG_DIR}/auth.txt"
 LOG_FILE="/var/log/zivpn-udp.log"
 SERVICE_FILE="/etc/systemd/system/zivpn-udp.service"
 BOT_SERVICE_FILE="/etc/systemd/system/zivpn-bot.service"
@@ -57,7 +58,9 @@ ensure_config_object() {
   "api_token": "",
   "telegram_bot_token": "",
   "telegram_admin_id": "",
-  "created_at": ""
+  "created_at": "",
+  "ovpn_username": "",
+  "ovpn_password": ""
 }
 EOF_JSON
 }
@@ -94,6 +97,7 @@ dev tun
 proto udp
 remote ${domain} ${port} udp
 ca ${CONFIG_DIR}/ca.crt
+auth-user-pass ${AUTH_FILE}
 resolv-retry infinite
 nobind
 persist-key
@@ -130,8 +134,29 @@ generate_ca_certificate() {
   ok "Sertifikat CA otomatis dibuat di $ca_crt"
 }
 
+create_auth_file() {
+  local username=$1 password=$2
+  mkdir -p "$CONFIG_DIR"
+  cat >"$AUTH_FILE" <<EOF_AUTH
+${username}
+${password}
+EOF_AUTH
+  chmod 600 "$AUTH_FILE"
+}
+
+refresh_auth_from_config() {
+  ensure_config_object
+  local username=$(json_get ovpn_username)
+  local password=$(json_get ovpn_password)
+  if [[ -z "$username" || "$username" == "null" || -z "$password" || "$password" == "null" ]]; then
+    warn "Username/password OpenVPN belum dikonfigurasi di config.json"
+    return
+  fi
+  create_auth_file "$username" "$password"
+}
+
 create_config_json() {
-  local domain=$1 port=$2 license=$3 expiry=$4 api_url=$5 api_token=$6 bot_token=$7 admin_id=$8
+  local domain=$1 port=$2 license=$3 expiry=$4 api_url=$5 api_token=$6 bot_token=$7 admin_id=$8 ovpn_user=$9 ovpn_pass=${10}
   mkdir -p "$CONFIG_DIR"
   cat >"$CONFIG_FILE" <<EOF_JSON
 {
@@ -143,7 +168,9 @@ create_config_json() {
   "api_token": "${api_token}",
   "telegram_bot_token": "${bot_token}",
   "telegram_admin_id": "${admin_id}",
-  "created_at": "$(date '+%Y-%m-%d %H:%M:%S')"
+  "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
+  "ovpn_username": "${ovpn_user}",
+  "ovpn_password": "${ovpn_pass}"
 }
 EOF_JSON
 }
@@ -277,6 +304,8 @@ install_all() {
   done
   read -rp "LICENSE KEY: " license
   read -rp "EXPIRY DATE (YYYY-MM-DD): " expiry
+  read -rp "USERNAME OpenVPN (sesuai dari panel): " ovpn_user
+  read -rsp "PASSWORD OpenVPN: " ovpn_pass; echo
   read -rp "Gunakan API lokal tanpa panel? [y/N]: " use_local_api
   api_url=""
   api_token=""
@@ -295,9 +324,10 @@ install_all() {
   read -rp "TELEGRAM BOT TOKEN (boleh kosong): " bot_token
   read -rp "TELEGRAM ADMIN CHAT ID (boleh kosong): " admin_id
 
+  create_auth_file "$ovpn_user" "$ovpn_pass"
   create_ovpn "$domain" "$port"
   generate_ca_certificate
-  create_config_json "$domain" "$port" "$license" "$expiry" "$api_url" "$api_token" "$bot_token" "$admin_id"
+  create_config_json "$domain" "$port" "$license" "$expiry" "$api_url" "$api_token" "$bot_token" "$admin_id" "$ovpn_user" "$ovpn_pass"
   if [[ "$use_local_api" =~ ^[Yy]$ ]]; then
     create_local_api_service "$api_token" "$api_port"
     ok "API lokal dijalankan di ${api_url}"
@@ -307,6 +337,7 @@ install_all() {
 }
 
 service_start() {
+  refresh_auth_from_config
   if systemctl start zivpn-udp; then
     ok "Service dimulai."
   else
@@ -323,6 +354,7 @@ service_stop() {
 }
 
 service_restart() {
+  refresh_auth_from_config
   if systemctl restart zivpn-udp; then
     ok "Service direstart."
   else
